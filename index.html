@@ -34,6 +34,35 @@
     display: block;
   }
 
+  #caption {
+    position: absolute;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 48px 40px 28px;
+    background: linear-gradient(transparent, rgba(0,0,0,0.65));
+    color: rgba(255,255,255,0.88);
+    font-family: Georgia, 'Times New Roman', serif;
+    font-size: 22px;
+    font-weight: normal;
+    letter-spacing: 0.02em;
+    text-align: center;
+    opacity: 0;
+    transition: opacity 0.6s ease-in-out;
+    pointer-events: none;
+  }
+
+  #counter {
+    position: absolute;
+    bottom: 18px;
+    right: 22px;
+    color: rgba(255,255,255,0.2);
+    font-family: sans-serif;
+    font-size: 11px;
+    letter-spacing: 0.05em;
+    pointer-events: none;
+  }
+
   #empty {
     display: none;
     position: absolute;
@@ -46,32 +75,34 @@
     line-height: 2;
   }
 
-  #info {
+  #paused-msg {
+    display: none;
     position: absolute;
-    bottom: 18px;
-    right: 22px;
-    color: rgba(255,255,255,0.25);
+    top: 50%; left: 50%;
+    transform: translate(-50%, -50%);
+    color: rgba(255,255,255,0.4);
     font-family: sans-serif;
-    font-size: 12px;
-    letter-spacing: 0.04em;
-    pointer-events: none;
+    font-size: 14px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
   }
 </style>
 </head>
 <body>
 
-<div id="empty">
-  No photos found.<br>Add images to /var/www/rubberduck.local/photos/
-</div>
+<div id="empty">No photos found.<br>Add images to /var/www/rubberduck.local/photos/</div>
 
 <div id="slideA" class="slide"><img id="imgA" src="" alt=""></div>
 <div id="slideB" class="slide"><img id="imgB" src="" alt=""></div>
 
-<div id="info"></div>
+<div id="caption"></div>
+<div id="counter"></div>
+<div id="paused-msg">Paused</div>
 
 <script>
   const INTERVAL_MS = 10000;
   const FADE_MS     = 1500;
+  const CAPTION_DELAY = 400;  // ms after image fades in before caption appears
   const ORDER       = 'random';
   const FIT         = 'contain';
   const PHOTOS_JSON = '/photos.json';
@@ -87,6 +118,28 @@
   let current  = 'A';
   let timer    = null;
   let paused   = false;
+  let captionTimer = null;
+
+  // Convert filename to readable caption
+  // e.g. "pip_and_milo_school_pickup.jpg" -> "Pip and Milo School Pickup"
+  const LOWERCASE_WORDS = new Set([
+    'a','an','the','and','but','or','for','nor','on','at',
+    'to','by','in','of','up','as','is','it'
+  ]);
+
+  function filenameToCaption(src) {
+    const filename = decodeURIComponent(src.split('/').pop());
+    const noExt    = filename.replace(/\.[^.]+$/, '');
+    const words    = noExt.replace(/[-_]+/g, ' ').trim().split(/\s+/);
+    return words.map((word, i) => {
+      const lower = word.toLowerCase();
+      // Always capitalise first and last word; lowercase small words in between
+      if (i === 0 || i === words.length - 1 || !LOWERCASE_WORDS.has(lower)) {
+        return lower.charAt(0).toUpperCase() + lower.slice(1);
+      }
+      return lower;
+    }).join(' ');
+  }
 
   function shuffle(arr) {
     const a = arr.slice();
@@ -118,11 +171,25 @@
     });
   }
 
-  function updateInfo(src) {
-    const name = decodeURIComponent(src.split('/').pop());
-    const idx  = sequence.indexOf(src) + 1;
-    document.getElementById('info').textContent =
-      idx + ' / ' + sequence.length + '  \u2022  ' + name;
+  function showCaption(src) {
+    const caption = document.getElementById('caption');
+    caption.style.opacity = '0';
+    clearTimeout(captionTimer);
+    captionTimer = setTimeout(() => {
+      caption.textContent = filenameToCaption(src);
+      caption.style.opacity = '1';
+    }, CAPTION_DELAY);
+  }
+
+  function hideCaption() {
+    const caption = document.getElementById('caption');
+    clearTimeout(captionTimer);
+    caption.style.opacity = '0';
+  }
+
+  function updateCounter(src) {
+    const idx = sequence.indexOf(src) + 1;
+    document.getElementById('counter').textContent = idx + ' / ' + sequence.length;
   }
 
   async function advance() {
@@ -136,7 +203,8 @@
     // preload next image
     nextSlot.img.src = nextSrc;
 
-    // fade current out to black
+    // hide caption, fade current out to black
+    hideCaption();
     await fadeTo(currSlot.slide, 0, FADE_MS);
 
     // prepare next slide (invisible)
@@ -146,9 +214,10 @@
     // brief pause on black
     await new Promise(r => setTimeout(r, 80));
 
-    // fade next in from black
-    updateInfo(nextSrc);
+    // fade next in from black, then show caption
+    updateCounter(nextSrc);
     await fadeTo(nextSlot.slide, 1, FADE_MS);
+    showCaption(nextSrc);
 
     current = nextId;
     seqIndex++;
@@ -164,7 +233,6 @@
 
     buildSequence();
 
-    // show first image with fade in from black
     const first = sequence[seqIndex];
     const slot  = getSlot('A');
     slot.img.src = first;
@@ -173,8 +241,9 @@
     setTimeout(() => {
       slot.slide.style.transition = `opacity ${FADE_MS}ms ease-in-out`;
       slot.slide.style.opacity = '1';
+      updateCounter(first);
+      showCaption(first);
     }, 50);
-    updateInfo(first);
     current = 'A';
     seqIndex++;
 
@@ -218,9 +287,9 @@
     }
     if (e.key === 'Escape' || e.key === 'q') {
       paused = !paused;
-      document.getElementById('info').textContent = paused
-        ? 'Paused — press Esc to resume'
-        : '';
+      document.getElementById('paused-msg').style.display = paused ? 'block' : 'none';
+      if (paused) hideCaption();
+      else showCaption(sequence[(seqIndex - 1 + sequence.length) % sequence.length]);
     }
   });
 </script>
