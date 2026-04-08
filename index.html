@@ -20,14 +20,9 @@
     top: 0; left: 0;
     width: 100%; height: 100%;
     opacity: 0;
-    transition: opacity 1.5s ease-in-out;
     display: flex;
     align-items: center;
     justify-content: center;
-  }
-
-  .slide.active {
-    opacity: 1;
   }
 
   .slide img {
@@ -60,14 +55,13 @@
     font-size: 12px;
     letter-spacing: 0.04em;
     pointer-events: none;
-    transition: opacity 0.5s;
   }
 </style>
 </head>
 <body>
 
 <div id="empty">
-  No photos found.<br>Add images to /var/www/html/photos/
+  No photos found.<br>Add images to /var/www/rubberduck.local/photos/
 </div>
 
 <div id="slideA" class="slide"><img id="imgA" src="" alt=""></div>
@@ -76,23 +70,23 @@
 <div id="info"></div>
 
 <script>
-  const INTERVAL_MS   = 10000;
-  const FADE_MS       = 1500;
-  const ORDER         = 'random';
-  const FIT           = 'contain';
-  const PHOTOS_JSON   = '/photos.json';
-  const REFRESH_MS    = 60000;
+  const INTERVAL_MS = 10000;
+  const FADE_MS     = 1500;
+  const ORDER       = 'random';
+  const FIT         = 'contain';
+  const PHOTOS_JSON = '/photos.json';
+  const REFRESH_MS  = 60000;
 
   document.querySelectorAll('.slide img').forEach(img => {
     img.style.objectFit = FIT;
   });
 
-  let photos     = [];
-  let sequence   = [];
-  let seqIndex   = 0;
-  let current    = 'A';
-  let timer      = null;
-  let refreshTimer = null;
+  let photos   = [];
+  let sequence = [];
+  let seqIndex = 0;
+  let current  = 'A';
+  let timer    = null;
+  let paused   = false;
 
   function shuffle(arr) {
     const a = arr.slice();
@@ -105,55 +99,60 @@
 
   function buildSequence() {
     if (!photos.length) return;
-    if (ORDER === 'random') {
-      sequence = shuffle(photos);
-    } else {
-      sequence = photos.slice();
-    }
+    sequence = ORDER === 'random' ? shuffle(photos) : photos.slice();
     seqIndex = 0;
   }
 
-  function nextIndex() {
-    seqIndex++;
-    if (seqIndex >= sequence.length) {
-      buildSequence();
-    }
-    return seqIndex;
+  function getSlot(id) {
+    return {
+      slide: document.getElementById('slide' + id),
+      img:   document.getElementById('img' + id)
+    };
   }
 
-  function showPhoto(src, slotId, imgId) {
-    const slide = document.getElementById(slotId);
-    const img   = document.getElementById(imgId);
-    img.src = src;
-    slide.classList.add('active');
-  }
-
-  function hideSlot(slotId) {
-    document.getElementById(slotId).classList.remove('active');
+  function fadeTo(el, targetOpacity, durationMs) {
+    return new Promise(resolve => {
+      el.style.transition = `opacity ${durationMs}ms ease-in-out`;
+      el.style.opacity = targetOpacity;
+      setTimeout(resolve, durationMs);
+    });
   }
 
   function updateInfo(src) {
-    const name = src.split('/').pop();
+    const name = decodeURIComponent(src.split('/').pop());
     const idx  = sequence.indexOf(src) + 1;
-    document.getElementById('info').textContent = idx + ' / ' + sequence.length + '  \u2022  ' + name;
+    document.getElementById('info').textContent =
+      idx + ' / ' + sequence.length + '  \u2022  ' + name;
   }
 
-  function advance() {
+  async function advance() {
     if (!sequence.length) return;
 
-    const next = sequence[seqIndex];
-    const nextSlot = current === 'A' ? 'B' : 'A';
-    const nextImg  = 'img' + nextSlot;
+    const nextSrc  = sequence[seqIndex];
+    const nextId   = current === 'A' ? 'B' : 'A';
+    const currSlot = getSlot(current);
+    const nextSlot = getSlot(nextId);
 
-    showPhoto(next, 'slide' + nextSlot, nextImg);
-    updateInfo(next);
+    // preload next image
+    nextSlot.img.src = nextSrc;
 
-    setTimeout(() => {
-      hideSlot('slide' + current);
-      current = nextSlot;
-    }, FADE_MS);
+    // fade current out to black
+    await fadeTo(currSlot.slide, 0, FADE_MS);
 
-    nextIndex();
+    // prepare next slide (invisible)
+    nextSlot.slide.style.transition = 'none';
+    nextSlot.slide.style.opacity = '0';
+
+    // brief pause on black
+    await new Promise(r => setTimeout(r, 80));
+
+    // fade next in from black
+    updateInfo(nextSrc);
+    await fadeTo(nextSlot.slide, 1, FADE_MS);
+
+    current = nextId;
+    seqIndex++;
+    if (seqIndex >= sequence.length) buildSequence();
   }
 
   function startSlideshow() {
@@ -165,14 +164,24 @@
 
     buildSequence();
 
+    // show first image with fade in from black
     const first = sequence[seqIndex];
-    showPhoto(first, 'slideA', 'imgA');
+    const slot  = getSlot('A');
+    slot.img.src = first;
+    slot.slide.style.transition = 'none';
+    slot.slide.style.opacity = '0';
+    setTimeout(() => {
+      slot.slide.style.transition = `opacity ${FADE_MS}ms ease-in-out`;
+      slot.slide.style.opacity = '1';
+    }, 50);
     updateInfo(first);
-    nextIndex();
     current = 'A';
+    seqIndex++;
 
     if (timer) clearInterval(timer);
-    timer = setInterval(advance, INTERVAL_MS);
+    timer = setInterval(() => {
+      if (!paused) advance();
+    }, INTERVAL_MS);
   }
 
   function loadPhotos() {
@@ -182,35 +191,36 @@
         const newList = Array.isArray(data) ? data : [];
         const changed = JSON.stringify(newList) !== JSON.stringify(photos);
         photos = newList;
-        if (changed || !timer) {
-          startSlideshow();
-        }
+        if (changed || !timer) startSlideshow();
       })
       .catch(() => {
-        if (!photos.length) {
+        if (!photos.length)
           document.getElementById('empty').style.display = 'block';
-        }
       });
   }
 
   loadPhotos();
-  refreshTimer = setInterval(loadPhotos, REFRESH_MS);
+  setInterval(loadPhotos, REFRESH_MS);
 
   document.addEventListener('keydown', e => {
     if (e.key === 'ArrowRight' || e.key === ' ') {
       clearInterval(timer);
-      advance();
-      timer = setInterval(advance, INTERVAL_MS);
+      advance().then(() => {
+        timer = setInterval(() => { if (!paused) advance(); }, INTERVAL_MS);
+      });
     }
     if (e.key === 'ArrowLeft') {
       clearInterval(timer);
       seqIndex = Math.max(0, seqIndex - 2);
-      advance();
-      timer = setInterval(advance, INTERVAL_MS);
+      advance().then(() => {
+        timer = setInterval(() => { if (!paused) advance(); }, INTERVAL_MS);
+      });
     }
     if (e.key === 'Escape' || e.key === 'q') {
-      clearInterval(timer);
-      document.getElementById('info').textContent = 'Paused — press any key to resume';
+      paused = !paused;
+      document.getElementById('info').textContent = paused
+        ? 'Paused — press Esc to resume'
+        : '';
     }
   });
 </script>
