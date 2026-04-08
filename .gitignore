@@ -1,0 +1,4 @@
+photos/
+photos.json
+*.pyc
+__pycache__/
