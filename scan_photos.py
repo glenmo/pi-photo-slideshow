@@ -24,7 +24,7 @@ EXTS      = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 # Build sorted list of photo URLs
 files = sorted([
     f"/photos/{quote(f)}" for f in os.listdir(PHOTO_DIR)
-    if os.path.splitext(f)[1].lower() in EXTS
+if os.path.splitext(f)[1].lower() in EXTS and not f.startswith("._")
 ])
 
 # Fix permissions on any newly added photos
