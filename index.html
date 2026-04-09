@@ -90,7 +90,7 @@
 </head>
 <body>
 
-<div id="empty">No photos found. Add images to the photos folder.</div>
+<div id="empty">No photos found.<br>Add images to /var/www/rubberduck.local/photos/</div>
 
 <div id="slideA" class="slide"><img id="imgA" src="" alt=""></div>
 <div id="slideB" class="slide"><img id="imgB" src="" alt=""></div>
@@ -115,9 +115,10 @@
   let photos   = [];
   let sequence = [];
   let seqIndex = 0;
-  let current  = 'A';
-  let timer    = null;
-  let paused   = false;
+  let current   = 'A';
+  let timer     = null;
+  let paused    = false;
+  let advancing = false;  // guard against overlapping transitions
   let captionTimer = null;
 
   // Convert filename to readable caption
@@ -194,6 +195,9 @@
 
   async function advance() {
     if (!sequence.length) return;
+    if (advancing) return;  // prevent overlapping transitions
+    advancing = true;
+    try {
 
     const nextSrc  = sequence[seqIndex];
     const nextId   = current === 'A' ? 'B' : 'A';
@@ -219,9 +223,14 @@
     await fadeTo(nextSlot.slide, 1, FADE_MS);
     showCaption(nextSrc);
 
-    current = nextId;
-    seqIndex++;
-    if (seqIndex >= sequence.length) buildSequence();
+      current = nextId;
+      seqIndex++;
+      if (seqIndex >= sequence.length) buildSequence();
+    } catch(e) {
+      console.error('Slideshow advance error:', e);
+    } finally {
+      advancing = false;
+    }
   }
 
   function startSlideshow() {
