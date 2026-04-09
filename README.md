@@ -285,30 +285,97 @@ Copy a folder of photos:
 scp -r ~/Photos/album/* <user>@<hostname>.local:/var/www/<hostname>.local/photos/
 ```
 
-### Drag and drop via Samba (recommended)
+### Drag and drop via Samba — Mac
 
-Samba is installed automatically by `setup.sh`. Set a password and connect:
+Samba is installed automatically by `setup.sh`. Set a password on the Pi first:
 
 ```bash
 sudo smbpasswd -a <user>
 sudo systemctl restart smbd
 ```
 
-**From a Mac** — open Finder, press `Cmd+K`, and connect to:
+Open Finder, press `Cmd+K`, and connect to:
 
 ```
 smb://<hostname>.local/photos
 ```
 
-**From Windows** — open File Explorer, click the address bar and type:
+Click **Remember this password** so Finder reconnects automatically next time. The photos folder will appear in the Finder sidebar under Locations.
+
+> **Note:** macOS creates hidden `._` metadata files alongside photos when copying over a network share. These are automatically filtered out by `scan_photos.py` and will not appear in the slideshow.
+
+---
+
+### Drag and drop via Samba — Windows
+
+#### Map as a permanent network drive (recommended)
+
+Mapping the photos folder as a drive letter means it always appears in File Explorer — just open it and drag photos in.
+
+1. Open **File Explorer** (`Windows key + E`)
+2. Right-click **This PC** in the left panel → **Map network drive...**
+3. Choose a drive letter (e.g. `P:` for Photos)
+4. In the **Folder** field enter:
+   ```
+   \<hostname>.local\photos
+   ```
+5. Tick **Reconnect at sign-in** and **Connect using different credentials**, then click **Finish**
+6. Enter the Pi username and password when prompted, then click **OK**
+7. The photos folder opens in File Explorer — drag your photos straight in
+
+Next time, the drive appears under **This PC** automatically.
+
+#### Quick access without mapping a drive
+
+Open File Explorer, click in the address bar, type the path below and press Enter:
 
 ```
-\\<hostname>.local\photos
+\<hostname>.local\photos
 ```
 
-Or map it as a permanent network drive: right-click **This PC** → **Map network drive** → enter `\\<hostname>.local\photos` and tick **Reconnect at sign-in**.
+Enter the Pi username and password if prompted. You can drag photos in without any setup, but you will need to type the address each time.
 
-> **Note for Mac users:** macOS creates hidden `._` metadata files alongside photos when copying over a network share. These are automatically filtered out by `scan_photos.py` and will not appear in the slideshow.
+#### Copy via WinSCP (alternative to Samba)
+
+[WinSCP](https://winscp.net) is a free Windows app that connects to the Pi over SSH — no Samba password needed.
+
+1. Download and install WinSCP from https://winscp.net
+2. Open WinSCP and create a new session:
+   - **File protocol**: SFTP
+   - **Host name**: `<hostname>.local`
+   - **Username**: your Pi username
+   - **Password**: your Pi password
+3. Click **Login**
+4. Navigate to `/var/www/<hostname>.local/photos/` in the right panel
+5. Drag photos from your Windows desktop or folders into the right panel
+
+WinSCP can save the session so you connect with one click next time.
+
+#### Troubleshooting Windows network access
+
+**Can't find the Pi by name** (`<hostname>.local` doesn't resolve)
+
+Windows sometimes struggles with `.local` mDNS names. Try using the Pi's IP address instead:
+
+```
+\<ip-address>\photos
+```
+
+Ask your system administrator for the Pi's IP address, or find it on the Pi with:
+```bash
+hostname -I
+```
+
+**Access denied / wrong password**
+
+Make sure you have set a Samba password on the Pi:
+```bash
+sudo smbpasswd -a <user>
+```
+
+**Drive doesn't reconnect after restart**
+
+If the mapped drive shows as disconnected after a Windows restart, right-click it in File Explorer and choose **Disconnect**, then remap it following the steps above. This usually happens if Windows tries to connect before the Pi has finished booting.
 
 ---
 
