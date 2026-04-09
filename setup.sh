@@ -171,12 +171,24 @@ echo ""
 # =============================================================================
 # 8. Kiosk autostart
 # =============================================================================
-info "Setting up Chromium kiosk mode on boot..."
+# Detect correct chromium binary name
+CHROMIUM_BIN=""
+if command -v chromium-browser &> /dev/null; then
+    CHROMIUM_BIN="chromium-browser"
+elif command -v chromium &> /dev/null; then
+    CHROMIUM_BIN="chromium"
+else
+    warn "Chromium not found — kiosk mode will not be configured. Install with: sudo apt install chromium"
+fi
+
+info "Setting up Chromium kiosk mode on boot (using: ${CHROMIUM_BIN})..."
 AUTOSTART_DIR="${HOME}/.config/lxsession/LXDE-pi"
 AUTOSTART_FILE="${AUTOSTART_DIR}/autostart"
 mkdir -p "${AUTOSTART_DIR}"
 
-if grep -q "chromium-browser --kiosk" "${AUTOSTART_FILE}" 2>/dev/null; then
+if [ -z "${CHROMIUM_BIN}" ]; then
+    warn "Skipping kiosk autostart — chromium not installed."
+elif grep -q "chromium.*--kiosk" "${AUTOSTART_FILE}" 2>/dev/null; then
     warn "Kiosk autostart already configured, skipping."
 else
     cat >> "${AUTOSTART_FILE}" << AUTOSTART
@@ -184,9 +196,9 @@ else
 @xset s off
 @xset -dpms
 @xset s noblank
-@chromium-browser --kiosk --incognito --disable-restore-session-state http://${DOMAIN}
+@${CHROMIUM_BIN} --kiosk --incognito --disable-restore-session-state http://${DOMAIN}
 AUTOSTART
-    success "Kiosk autostart configured for http://${DOMAIN}/"
+    success "Kiosk autostart configured for http://${DOMAIN}/ using ${CHROMIUM_BIN}"
 fi
 
 echo ""
