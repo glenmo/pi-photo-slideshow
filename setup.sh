@@ -182,23 +182,42 @@ else
 fi
 
 info "Setting up Chromium kiosk mode on boot (using: ${CHROMIUM_BIN})..."
-AUTOSTART_DIR="${HOME}/.config/lxsession/LXDE-pi"
-AUTOSTART_FILE="${AUTOSTART_DIR}/autostart"
-mkdir -p "${AUTOSTART_DIR}"
 
-if [ -z "${CHROMIUM_BIN}" ]; then
-    warn "Skipping kiosk autostart — chromium not installed."
-elif grep -q "chromium.*--kiosk" "${AUTOSTART_FILE}" 2>/dev/null; then
-    warn "Kiosk autostart already configured, skipping."
+# Detect compositor: labwc (Pi OS Bookworm) or LXDE (older Pi OS)
+if [ -d "${HOME}/.config/labwc" ]; then
+    info "Detected labwc compositor (Pi OS Bookworm)"
+    AUTOSTART_FILE="${HOME}/.config/labwc/autostart"
+    if [ -z "${CHROMIUM_BIN}" ]; then
+        warn "Skipping kiosk autostart — chromium not installed."
+    elif grep -q "chromium.*--kiosk" "${AUTOSTART_FILE}" 2>/dev/null; then
+        warn "Kiosk autostart already configured in labwc, skipping."
+    else
+        cat >> "${AUTOSTART_FILE}" << LABWC
+xset s off &
+xset -dpms &
+xset s noblank &
+sleep 5 && ${CHROMIUM_BIN} --kiosk --no-first-run --noerrdialogs --disable-infobars --incognito --disable-restore-session-state http://${DOMAIN} &
+LABWC
+        success "Kiosk autostart configured in labwc for http://${DOMAIN}/"
+    fi
 else
-    cat >> "${AUTOSTART_FILE}" << AUTOSTART
-
+    info "Detected LXDE compositor"
+    AUTOSTART_DIR="${HOME}/.config/lxsession/LXDE-pi"
+    AUTOSTART_FILE="${AUTOSTART_DIR}/autostart"
+    mkdir -p "${AUTOSTART_DIR}"
+    if [ -z "${CHROMIUM_BIN}" ]; then
+        warn "Skipping kiosk autostart — chromium not installed."
+    elif grep -q "chromium.*--kiosk" "${AUTOSTART_FILE}" 2>/dev/null; then
+        warn "Kiosk autostart already configured in LXDE, skipping."
+    else
+        cat >> "${AUTOSTART_FILE}" << LXDE
 @xset s off
 @xset -dpms
 @xset s noblank
-@${CHROMIUM_BIN} --kiosk --incognito --disable-restore-session-state http://${DOMAIN}
-AUTOSTART
-    success "Kiosk autostart configured for http://${DOMAIN}/ using ${CHROMIUM_BIN}"
+@${CHROMIUM_BIN} --kiosk --no-first-run --noerrdialogs --disable-infobars --incognito --disable-restore-session-state http://${DOMAIN}
+LXDE
+        success "Kiosk autostart configured in LXDE for http://${DOMAIN}/"
+    fi
 fi
 
 echo ""
