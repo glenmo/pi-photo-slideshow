@@ -128,8 +128,11 @@ echo ""
 # 5. Run scanner once to create photos.json
 # =============================================================================
 info "Running photo scanner..."
-python3 "${HOME}/scan_photos.py"
-success "photos.json created."
+if python3 "${HOME}/scan_photos.py"; then
+    success "photos.json created."
+else
+    warn "Scanner ran with warnings (this is normal if the photos folder is empty)."
+fi
 echo ""
 
 # =============================================================================
@@ -141,8 +144,13 @@ EXISTING_CRON=$(crontab -l 2>/dev/null || true)
 if echo "${EXISTING_CRON}" | grep -qF "scan_photos.py"; then
     warn "Cron job already exists, skipping."
 else
-    ( echo "${EXISTING_CRON}"; echo "${CRON_JOB}" ) | crontab -
-    success "Cron job set."
+    { echo "${EXISTING_CRON}"; echo "${CRON_JOB}"; } | crontab -
+    # Verify it was actually installed
+    if crontab -l 2>/dev/null | grep -qF "scan_photos.py"; then
+        success "Cron job set."
+    else
+        error "Cron job failed to install — run manually: crontab -e"
+    fi
 fi
 echo ""
 
