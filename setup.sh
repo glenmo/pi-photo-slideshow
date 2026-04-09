@@ -137,10 +137,13 @@ echo ""
 # =============================================================================
 info "Setting up cron job (runs every minute)..."
 CRON_JOB="* * * * * python3 ${HOME}/scan_photos.py"
-( crontab -l 2>/dev/null | grep -qF "scan_photos.py" ) \
-    && warn "Cron job already exists, skipping." \
-    || ( crontab -l 2>/dev/null; echo "${CRON_JOB}" ) | crontab -
-success "Cron job set."
+EXISTING_CRON=$(crontab -l 2>/dev/null || true)
+if echo "${EXISTING_CRON}" | grep -qF "scan_photos.py"; then
+    warn "Cron job already exists, skipping."
+else
+    ( echo "${EXISTING_CRON}"; echo "${CRON_JOB}" ) | crontab -
+    success "Cron job set."
+fi
 echo ""
 
 # =============================================================================
@@ -196,7 +199,7 @@ if [ -d "${HOME}/.config/labwc" ]; then
 xset s off &
 xset -dpms &
 xset s noblank &
-sleep 5 && ${CHROMIUM_BIN} --kiosk --no-first-run --noerrdialogs --disable-infobars --password-store=basic --incognito --disable-restore-session-state http://${DOMAIN} &
+sleep 5 && ${CHROMIUM_BIN} --kiosk --no-first-run --noerrdialogs --disable-infobars --incognito --disable-restore-session-state http://${DOMAIN} &
 LABWC
         success "Kiosk autostart configured in labwc for http://${DOMAIN}/"
     fi
@@ -214,7 +217,7 @@ else
 @xset s off
 @xset -dpms
 @xset s noblank
-@${CHROMIUM_BIN} --kiosk --no-first-run --noerrdialogs --disable-infobars --password-store=basic --incognito --disable-restore-session-state http://${DOMAIN}
+@${CHROMIUM_BIN} --kiosk --no-first-run --noerrdialogs --disable-infobars --incognito --disable-restore-session-state http://${DOMAIN}
 LXDE
         success "Kiosk autostart configured in LXDE for http://${DOMAIN}/"
     fi
