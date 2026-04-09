@@ -21,15 +21,16 @@ PHOTO_DIR = config.get("PHOTO_DIR", "/var/www/rubberduck.local/photos")
 OUTPUT    = config.get("OUTPUT",    "/var/www/rubberduck.local/photos.json")
 EXTS      = {".jpg", ".jpeg", ".png", ".webp", ".gif"}
 
-# Build sorted list of photo URLs
+# Build sorted list of photo URLs, ignoring macOS metadata files
 files = sorted([
     f"/photos/{quote(f)}" for f in os.listdir(PHOTO_DIR)
-if os.path.splitext(f)[1].lower() in EXTS and not f.startswith("._")
+    if os.path.splitext(f)[1].lower() in EXTS
+    and not f.startswith("._")
 ])
 
-# Fix permissions on any newly added photos
+# Fix permissions on any newly added photos, ignoring macOS metadata files
 for f in os.listdir(PHOTO_DIR):
-    if os.path.splitext(f)[1].lower() in EXTS:
+    if os.path.splitext(f)[1].lower() in EXTS and not f.startswith("._"):
         path = os.path.join(PHOTO_DIR, f)
         try:
             os.chmod(path, 0o644)

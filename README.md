@@ -61,7 +61,7 @@ All other dependencies (Apache2, Python3, Samba, Chromium) are installed by `set
 
 ## Manual installation
 
-If you prefer to set things up step by step rather than using the script:
+If you prefer to set things up step by step rather than using the script, replace `<hostname>` with your Pi's hostname and `<user>` with your username throughout.
 
 ### 1. Clone the repo
 
@@ -69,62 +69,71 @@ If you prefer to set things up step by step rather than using the script:
 git clone https://github.com/glenmo/pi-photo-slideshow.git ~/slideshow
 ```
 
-### 2. Set up the Apache2 virtual host
+### 2. Write the config file
+
+```bash
+cat > ~/.slideshow_config << EOF
+PHOTO_DIR=/var/www/<hostname>.local/photos
+OUTPUT=/var/www/<hostname>.local/photos.json
+EOF
+```
+
+### 3. Set up the Apache2 virtual host
 
 Create the document root and set permissions:
 
 ```bash
-sudo mkdir -p /var/www/rubberduck.local/photos
-sudo chown -R glen:www-data /var/www/rubberduck.local
-sudo chmod -R 775 /var/www/rubberduck.local
+sudo mkdir -p /var/www/<hostname>.local/photos
+sudo chown -R <user>:www-data /var/www/<hostname>.local
+sudo chmod -R 775 /var/www/<hostname>.local
 ```
 
 Create the virtual host config:
 
 ```bash
-sudo nano /etc/apache2/sites-available/rubberduck.local.conf
+sudo nano /etc/apache2/sites-available/<hostname>.local.conf
 ```
 
 Paste:
 
 ```apache
 <VirtualHost *:80>
-    ServerName rubberduck.local
-    ServerAlias www.rubberduck.local
-    DocumentRoot /var/www/rubberduck.local
-    <Directory /var/www/rubberduck.local>
+    ServerName <hostname>.local
+    ServerAlias www.<hostname>.local
+    DocumentRoot /var/www/<hostname>.local
+    <Directory /var/www/<hostname>.local>
         AllowOverride All
         Require all granted
     </Directory>
-    ErrorLog ${APACHE_LOG_DIR}/rubberduck.local-error.log
-    CustomLog ${APACHE_LOG_DIR}/rubberduck.local-access.log combined
+    ErrorLog ${APACHE_LOG_DIR}/<hostname>.local-error.log
+    CustomLog ${APACHE_LOG_DIR}/<hostname>.local-access.log combined
 </VirtualHost>
 ```
 
 Enable the site and reload Apache:
 
 ```bash
-sudo a2ensite rubberduck.local.conf
+sudo a2ensite <hostname>.local.conf
 sudo systemctl reload apache2
 ```
 
-### 3. Deploy the slideshow files
+### 4. Deploy the slideshow files
 
 ```bash
-sudo cp ~/slideshow/index.html /var/www/rubberduck.local/index.html
+sudo cp ~/slideshow/index.html /var/www/<hostname>.local/index.html
 cp ~/slideshow/scan_photos.py ~/scan_photos.py
 ```
 
-### 4. Run the scanner once to test
+### 5. Run the scanner once to test
 
 ```bash
 python3 ~/scan_photos.py
-cat /var/www/rubberduck.local/photos.json
+cat /var/www/<hostname>.local/photos.json
 ```
 
 You should see `[]` if no photos have been added yet — that's fine.
 
-### 5. Set up the cron job
+### 6. Set up the cron job
 
 ```bash
 crontab -e
@@ -133,10 +142,10 @@ crontab -e
 Add this line:
 
 ```
-* * * * * python3 /home/glen/scan_photos.py
+* * * * * python3 /home/<user>/scan_photos.py
 ```
 
-### 6. Set up kiosk mode on boot
+### 7. Set up kiosk mode on boot
 
 Edit the autostart file:
 
@@ -150,7 +159,7 @@ Add at the bottom:
 @xset s off
 @xset -dpms
 @xset s noblank
-@chromium-browser --kiosk --incognito --disable-restore-session-state http://rubberduck.local
+@chromium-browser --kiosk --incognito --disable-restore-session-state http://<hostname>.local
 ```
 
 Reboot to test:
@@ -168,54 +177,33 @@ sudo reboot
 Copy a single photo:
 
 ```bash
-scp photo.jpg glen@rubberduck.local:/var/www/rubberduck.local/photos/
+scp photo.jpg <user>@<hostname>.local:/var/www/<hostname>.local/photos/
 ```
 
 Copy a folder of photos:
 
 ```bash
-scp -r ~/Photos/album/* glen@rubberduck.local:/var/www/rubberduck.local/photos/
+scp -r ~/Photos/album/* <user>@<hostname>.local:/var/www/<hostname>.local/photos/
 ```
 
 ### Drag and drop via Samba (recommended)
 
-Install Samba on the Pi:
+Samba is installed automatically by `setup.sh`. Set a password and connect:
 
 ```bash
-sudo apt install samba -y
-```
-
-Add a share at the bottom of `/etc/samba/smb.conf`:
-
-```bash
-sudo nano /etc/samba/smb.conf
-```
-
-```ini
-[photos]
-   path = /var/www/rubberduck.local/photos
-   browseable = yes
-   read only = no
-   guest ok = no
-   create mask = 0644
-   directory mask = 0755
-   force user = glen
-```
-
-Set a Samba password:
-
-```bash
-sudo smbpasswd -a glen
+sudo smbpasswd -a <user>
 sudo systemctl restart smbd
 ```
 
 On your Mac, open Finder and press `Cmd+K`, then connect to:
 
 ```
-smb://rubberduck.local/photos
+smb://<hostname>.local/photos
 ```
 
 The photos folder mounts as a network drive — drag and drop photos directly from your Mac.
+
+> **Note for Mac users:** macOS sometimes creates hidden `._` metadata files alongside photos when copying over a network share. These are automatically filtered out by `scan_photos.py` and will not appear in the slideshow.
 
 ---
 
@@ -249,17 +237,17 @@ When a keyboard is connected to the Pi:
 Settings are at the top of `index.html` and can be adjusted:
 
 ```javascript
-const INTERVAL_MS   = 10000;    // time per photo in milliseconds (10000 = 10s)
-const FADE_MS       = 1500;     // fade duration in milliseconds
-const CAPTION_DELAY = 400;      // delay before caption appears after image fades in
-const ORDER         = 'random'; // 'random' or 'sequential'
+const INTERVAL_MS   = 10000;     // time per photo in milliseconds (10000 = 10s)
+const FADE_MS       = 1500;      // fade duration in milliseconds
+const CAPTION_DELAY = 400;       // delay before caption appears after image fades in
+const ORDER         = 'random';  // 'random' or 'sequential'
 const FIT           = 'contain'; // 'contain' (letterbox) or 'cover' (crop to fill)
 ```
 
 After editing, redeploy:
 
 ```bash
-sudo cp ~/slideshow/index.html /var/www/rubberduck.local/index.html
+sudo cp ~/slideshow/index.html /var/www/<hostname>.local/index.html
 ```
 
 ---
@@ -271,16 +259,16 @@ To pull the latest version of the slideshow onto the Pi:
 ```bash
 cd ~/slideshow
 git pull
-sudo cp index.html /var/www/rubberduck.local/index.html
+sudo cp index.html /var/www/<hostname>.local/index.html
+cp scan_photos.py ~/scan_photos.py
 ```
 
 ## Pushing changes to GitHub
 
-After editing `index.html` or `scan_photos.py`:
+After editing files:
 
 ```bash
 cd ~/slideshow
-cp /var/www/rubberduck.local/index.html .
 git add -A
 git commit -m "describe your change"
 git push
@@ -294,12 +282,12 @@ git push
 
 Check Apache error log:
 ```bash
-sudo tail -20 /var/log/apache2/rubberduck.local-error.log
+sudo tail -20 /var/log/apache2/<hostname>.local-error.log
 ```
 
 If you see `Permission denied`, fix photo file permissions:
 ```bash
-sudo chmod 644 /var/www/rubberduck.local/photos/*.jpg
+sudo chmod 644 /var/www/<hostname>.local/photos/*.jpg
 ```
 
 The cron job handles this automatically for newly added photos going forward.
@@ -309,7 +297,7 @@ The cron job handles this automatically for newly added photos going forward.
 Check that the cron job is running and `photos.json` is being updated:
 ```bash
 python3 ~/scan_photos.py
-cat /var/www/rubberduck.local/photos.json
+cat /var/www/<hostname>.local/photos.json
 ```
 
 **Site not found at hostname.local**
@@ -317,7 +305,7 @@ cat /var/www/rubberduck.local/photos.json
 Check the virtual host is enabled:
 ```bash
 ls /etc/apache2/sites-enabled/
-sudo a2ensite rubberduck.local.conf
+sudo a2ensite <hostname>.local.conf
 sudo systemctl reload apache2
 ```
 
@@ -342,6 +330,13 @@ Test with:
 ssh -T git@github.com
 ```
 
+**macOS `._` metadata files appearing in photos folder**
+
+Delete them and they won't come back — `scan_photos.py` filters them automatically:
+```bash
+find /var/www/<hostname>.local/photos/ -name "._*" -delete
+```
+
 ---
 
 ## File structure
@@ -359,4 +354,6 @@ repo/
 └── photos/           # put your photos here
     ├── photo_one.jpg
     └── photo_two.jpg
+
+~/.slideshow_config   # paths config written by setup.sh
 ```
