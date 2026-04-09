@@ -21,7 +21,8 @@ The script automatically:
 - Deploys `index.html` and `scan_photos.py`
 - Sets up the cron job to scan for new photos every minute
 - Configures a Samba share for drag-and-drop from Mac/PC
-- Sets up Chromium kiosk mode on boot
+- Detects compositor (labwc or LXDE) and sets up Chromium kiosk mode on boot
+- Detects `chromium` vs `chromium-browser` binary automatically
 - Applies GPU memory tweaks for smooth display (Pi 3)
 
 After the script finishes:
@@ -36,6 +37,15 @@ scp photo.jpg <user>@<hostname>.local:/var/www/<hostname>.local/photos/
 # Reboot into kiosk mode
 sudo reboot
 ```
+
+---
+
+## Tested on
+
+| Hardware | OS | Compositor | Status |
+|---|---|---|---|
+| Raspberry Pi 5 | Pi OS Bookworm | LXDE | Working |
+| Raspberry Pi 3 | Pi OS Bookworm | labwc | Working |
 
 ---
 
@@ -147,7 +157,32 @@ Add this line:
 
 ### 7. Set up kiosk mode on boot
 
-Edit the autostart file:
+First check which compositor your Pi OS uses:
+
+```bash
+ls ~/.config/labwc/    # exists on Pi OS Bookworm (Pi 3)
+ls ~/.config/lxsession/ # exists on older Pi OS (Pi 5 / LXDE)
+```
+
+Also check the Chromium binary name:
+
+```bash
+which chromium         # Pi OS Bookworm
+which chromium-browser # older Pi OS
+```
+
+**For labwc (Pi OS Bookworm — Pi 3):**
+
+```bash
+cat >> ~/.config/labwc/autostart << 'EOF'
+xset s off &
+xset -dpms &
+xset s noblank &
+sleep 5 && chromium --kiosk --no-first-run --noerrdialogs --disable-infobars --incognito --disable-restore-session-state http://<hostname>.local &
+EOF
+```
+
+**For LXDE (older Pi OS — Pi 5):**
 
 ```bash
 nano ~/.config/lxsession/LXDE-pi/autostart
@@ -159,7 +194,7 @@ Add at the bottom:
 @xset s off
 @xset -dpms
 @xset s noblank
-@chromium-browser --kiosk --incognito --disable-restore-session-state http://<hostname>.local
+@chromium-browser --kiosk --no-first-run --noerrdialogs --disable-infobars --incognito --disable-restore-session-state http://<hostname>.local
 ```
 
 Reboot to test:
@@ -203,7 +238,7 @@ smb://<hostname>.local/photos
 
 The photos folder mounts as a network drive — drag and drop photos directly from your Mac.
 
-> **Note for Mac users:** macOS sometimes creates hidden `._` metadata files alongside photos when copying over a network share. These are automatically filtered out by `scan_photos.py` and will not appear in the slideshow.
+> **Note for Mac users:** macOS creates hidden `._` metadata files alongside photos when copying over a network share. These are automatically filtered out by `scan_photos.py` and will not appear in the slideshow.
 
 ---
 
@@ -309,6 +344,35 @@ sudo a2ensite <hostname>.local.conf
 sudo systemctl reload apache2
 ```
 
+**Kiosk mode not starting on boot**
+
+Check which compositor is running:
+```bash
+ls ~/.config/labwc/    # labwc = Pi OS Bookworm
+ls ~/.config/lxsession/ # LXDE = older Pi OS
+```
+
+Check the correct autostart file has the chromium entry:
+```bash
+cat ~/.config/labwc/autostart         # for labwc
+cat ~/.config/lxsession/LXDE-pi/autostart  # for LXDE
+```
+
+Check the correct chromium binary name:
+```bash
+which chromium
+which chromium-browser
+```
+
+Test kiosk mode manually without rebooting:
+```bash
+chromium --kiosk --no-first-run --noerrdialogs --disable-infobars --incognito --disable-restore-session-state http://<hostname>.local
+```
+
+**Chromium shows Google login prompt on first launch**
+
+The `--no-first-run` and `--incognito` flags suppress this. Make sure your autostart entry includes both flags as shown above.
+
 **GitHub push failing (SSH timeout)**
 
 If SSH to GitHub hangs, port 22 may be blocked. Force SSH over port 443:
@@ -332,7 +396,7 @@ ssh -T git@github.com
 
 **macOS `._` metadata files appearing in photos folder**
 
-Delete them and they won't come back — `scan_photos.py` filters them automatically:
+Delete them — `scan_photos.py` filters them automatically going forward:
 ```bash
 find /var/www/<hostname>.local/photos/ -name "._*" -delete
 ```
@@ -356,4 +420,6 @@ repo/
     └── photo_two.jpg
 
 ~/.slideshow_config   # paths config written by setup.sh
+~/.config/labwc/autostart          # kiosk autostart (Pi OS Bookworm)
+~/.config/lxsession/LXDE-pi/autostart  # kiosk autostart (older Pi OS)
 ```
