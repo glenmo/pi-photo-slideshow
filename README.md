@@ -9,7 +9,7 @@ A fullscreen photo slideshow served by Apache2 on a Raspberry Pi. Photos are dis
 On a fresh Raspberry Pi OS install, clone the repo and run the setup script:
 
 ```bash
-git clone https://github.com/glenmo/pi-photo-slideshow.git ~/slideshow
+git clone git@github.com:glenmo/pi-photo-slideshow.git ~/slideshow
 cd ~/slideshow
 chmod +x setup.sh
 ./setup.sh
@@ -37,6 +37,70 @@ scp photo.jpg <user>@<hostname>.local:/var/www/<hostname>.local/photos/
 # Reboot into kiosk mode
 sudo reboot
 ```
+
+---
+
+## First time GitHub SSH setup
+
+Each Pi needs its own SSH key registered with GitHub before it can clone the repo. Do this once per Pi before running the quick install above.
+
+### 1. Generate an SSH key on the Pi
+
+```bash
+ssh-keygen -t ed25519 -C "<hostname>-pi"
+```
+
+Press Enter three times to accept the defaults (no passphrase needed).
+
+### 2. Display the public key
+
+```bash
+cat ~/.ssh/id_ed25519.pub
+```
+
+Copy the entire output line — it starts with `ssh-ed25519`.
+
+### 3. Add the key to GitHub
+
+Go to https://github.com/settings/ssh/new
+
+- **Title**: something descriptive like `rubberduck pi` or `pixel-pi`
+- **Key**: paste the output from step 2
+- Click **Add SSH key**
+
+### 4. Configure SSH to use port 443
+
+Port 22 (standard SSH) is sometimes blocked on home networks. Force SSH over port 443 which is always open:
+
+```bash
+mkdir -p ~/.ssh
+cat >> ~/.ssh/config << 'EOF'
+Host github.com
+  Hostname ssh.github.com
+  Port 443
+  User git
+EOF
+```
+
+### 5. Test the connection
+
+```bash
+ssh -T git@github.com
+```
+
+You should see:
+
+```
+Hi glenmo! You've successfully authenticated, but GitHub does not provide shell access.
+```
+
+### 6. Set default branch name to main
+
+```bash
+git config --global init.defaultBranch main
+```
+
+Now proceed with the quick install above.
 
 ---
 
@@ -76,7 +140,7 @@ If you prefer to set things up step by step rather than using the script, replac
 ### 1. Clone the repo
 
 ```bash
-git clone https://github.com/glenmo/pi-photo-slideshow.git ~/slideshow
+git clone git@github.com:glenmo/pi-photo-slideshow.git ~/slideshow
 ```
 
 ### 2. Write the config file
@@ -160,15 +224,15 @@ Add this line:
 First check which compositor your Pi OS uses:
 
 ```bash
-ls ~/.config/labwc/    # exists on Pi OS Bookworm (Pi 3)
+ls ~/.config/labwc/     # exists on Pi OS Bookworm (Pi 3)
 ls ~/.config/lxsession/ # exists on older Pi OS (Pi 5 / LXDE)
 ```
 
 Also check the Chromium binary name:
 
 ```bash
-which chromium         # Pi OS Bookworm
-which chromium-browser # older Pi OS
+which chromium          # Pi OS Bookworm
+which chromium-browser  # older Pi OS
 ```
 
 **For labwc (Pi OS Bookworm — Pi 3):**
@@ -178,7 +242,7 @@ cat >> ~/.config/labwc/autostart << 'EOF'
 xset s off &
 xset -dpms &
 xset s noblank &
-sleep 5 && chromium --kiosk --no-first-run --noerrdialogs --disable-infobars --incognito --disable-restore-session-state http://<hostname>.local &
+sleep 5 && chromium --kiosk --no-first-run --noerrdialogs --disable-infobars --password-store=basic --incognito --disable-restore-session-state http://<hostname>.local &
 EOF
 ```
 
@@ -194,7 +258,7 @@ Add at the bottom:
 @xset s off
 @xset -dpms
 @xset s noblank
-@chromium-browser --kiosk --no-first-run --noerrdialogs --disable-infobars --incognito --disable-restore-session-state http://<hostname>.local
+@chromium-browser --kiosk --no-first-run --noerrdialogs --disable-infobars --password-store=basic --incognito --disable-restore-session-state http://<hostname>.local
 ```
 
 Reboot to test:
@@ -230,13 +294,19 @@ sudo smbpasswd -a <user>
 sudo systemctl restart smbd
 ```
 
-On your Mac, open Finder and press `Cmd+K`, then connect to:
+**From a Mac** — open Finder, press `Cmd+K`, and connect to:
 
 ```
 smb://<hostname>.local/photos
 ```
 
-The photos folder mounts as a network drive — drag and drop photos directly from your Mac.
+**From Windows** — open File Explorer, click the address bar and type:
+
+```
+\\<hostname>.local\photos
+```
+
+Or map it as a permanent network drive: right-click **This PC** → **Map network drive** → enter `\\<hostname>.local\photos` and tick **Reconnect at sign-in**.
 
 > **Note for Mac users:** macOS creates hidden `._` metadata files alongside photos when copying over a network share. These are automatically filtered out by `scan_photos.py` and will not appear in the slideshow.
 
@@ -331,9 +401,24 @@ The cron job handles this automatically for newly added photos going forward.
 
 Check that the cron job is running and `photos.json` is being updated:
 ```bash
+crontab -l
 python3 ~/scan_photos.py
 cat /var/www/<hostname>.local/photos.json
 ```
+
+If the cron job is missing, add it:
+```bash
+(crontab -l 2>/dev/null; echo "* * * * * python3 /home/$(whoami)/scan_photos.py") | crontab -
+```
+
+**Slideshow freezes on one image**
+
+This can happen if the browser tab runs out of memory (common on Pi 3 with large photos). Restart Chromium:
+```bash
+sudo systemctl restart lightdm
+```
+
+Or press `Ctrl+Shift+R` on a connected keyboard to hard refresh the page.
 
 **Site not found at hostname.local**
 
@@ -348,45 +433,40 @@ sudo systemctl reload apache2
 
 Check which compositor is running:
 ```bash
-ls ~/.config/labwc/    # labwc = Pi OS Bookworm
+ls ~/.config/labwc/     # labwc = Pi OS Bookworm
 ls ~/.config/lxsession/ # LXDE = older Pi OS
 ```
 
 Check the correct autostart file has the chromium entry:
 ```bash
-cat ~/.config/labwc/autostart         # for labwc
-cat ~/.config/lxsession/LXDE-pi/autostart  # for LXDE
-```
-
-Check the correct chromium binary name:
-```bash
-which chromium
-which chromium-browser
+cat ~/.config/labwc/autostart              # for labwc
+cat ~/.config/lxsession/LXDE-pi/autostart # for LXDE
 ```
 
 Test kiosk mode manually without rebooting:
 ```bash
-chromium --kiosk --no-first-run --noerrdialogs --disable-infobars --incognito --disable-restore-session-state http://<hostname>.local
+chromium --kiosk --no-first-run --noerrdialogs --disable-infobars --password-store=basic --incognito --disable-restore-session-state http://<hostname>.local
 ```
 
-**Chromium shows Google login prompt on first launch**
+**Chromium shows Google login or keyring prompt on first launch**
 
-The `--no-first-run` and `--incognito` flags suppress this. Make sure your autostart entry includes both flags as shown above.
+Make sure your autostart entry includes `--no-first-run`, `--incognito`, and `--password-store=basic` as shown above.
+
+**GitHub SSH permission denied**
+
+The Pi's SSH key hasn't been added to GitHub. Follow the **First time GitHub SSH setup** section above.
 
 **GitHub push failing (SSH timeout)**
 
-If SSH to GitHub hangs, port 22 may be blocked. Force SSH over port 443:
+Port 22 may be blocked. Force SSH over port 443:
 
 ```bash
-nano ~/.ssh/config
-```
-
-Add:
-```
+cat >> ~/.ssh/config << 'EOF'
 Host github.com
   Hostname ssh.github.com
   Port 443
   User git
+EOF
 ```
 
 Test with:
@@ -419,7 +499,7 @@ repo/
     ├── photo_one.jpg
     └── photo_two.jpg
 
-~/.slideshow_config   # paths config written by setup.sh
-~/.config/labwc/autostart          # kiosk autostart (Pi OS Bookworm)
-~/.config/lxsession/LXDE-pi/autostart  # kiosk autostart (older Pi OS)
+~/.slideshow_config                        # paths config written by setup.sh
+~/.config/labwc/autostart                  # kiosk autostart (Pi OS Bookworm)
+~/.config/lxsession/LXDE-pi/autostart     # kiosk autostart (older Pi OS)
 ```
