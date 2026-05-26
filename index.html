@@ -90,7 +90,7 @@
 </head>
 <body>
 
-<div id="empty">No photos found.<br>Add images to /var/www/rubberduck.local/photos/</div>
+<div id="empty">No photos found.<br>Add images to /home/glen/photos/</div>
 
 <div id="slideA" class="slide"><img id="imgA" src="" alt=""></div>
 <div id="slideB" class="slide"><img id="imgB" src="" alt=""></div>
@@ -106,7 +106,7 @@
   const ORDER       = 'random';
   const FIT         = 'contain';
   const PHOTOS_JSON = '/photos.json';
-  const REFRESH_MS  = 60000;
+  const REFRESH_MS  = 30000;
 
   document.querySelectorAll('.slide img').forEach(img => {
     img.style.objectFit = FIT;
@@ -204,23 +204,22 @@
     const currSlot = getSlot(current);
     const nextSlot = getSlot(nextId);
 
-    // preload next image
+    // preload next image, stacked above the current slide and hidden
     nextSlot.img.src = nextSrc;
-
-    // hide caption, fade current out to black
-    hideCaption();
-    await fadeTo(currSlot.slide, 0, FADE_MS);
-
-    // prepare next slide (invisible)
     nextSlot.slide.style.transition = 'none';
+    nextSlot.slide.style.zIndex = '1';
+    currSlot.slide.style.zIndex = '0';
     nextSlot.slide.style.opacity = '0';
+    void nextSlot.slide.offsetWidth;  // commit the above before transitioning
 
-    // brief pause on black
-    await new Promise(r => setTimeout(r, 80));
-
-    // fade next in from black, then show caption
+    // hide caption, then crossfade the next image in over the current one
+    hideCaption();
     updateCounter(nextSrc);
     await fadeTo(nextSlot.slide, 1, FADE_MS);
+
+    // current slide is now fully hidden beneath — reset it instantly
+    currSlot.slide.style.transition = 'none';
+    currSlot.slide.style.opacity = '0';
     showCaption(nextSrc);
 
       current = nextId;
