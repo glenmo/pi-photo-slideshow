@@ -224,7 +224,7 @@ if [ -d "${HOME}/.config/labwc" ]; then
 xset s off &
 xset -dpms &
 xset s noblank &
-sleep 5 && ${CHROMIUM_BIN} --kiosk --no-first-run --noerrdialogs --disable-infobars --incognito --disable-restore-session-state http://${DOMAIN} &
+sleep 5 && ${CHROMIUM_BIN} --kiosk --no-first-run --noerrdialogs --disable-infobars --incognito --disable-restore-session-state --password-store=basic http://${DOMAIN} &
 LABWC
         success "Kiosk autostart configured in labwc for http://${DOMAIN}/"
     fi
@@ -242,7 +242,7 @@ else
 @xset s off
 @xset -dpms
 @xset s noblank
-@${CHROMIUM_BIN} --kiosk --no-first-run --noerrdialogs --disable-infobars --incognito --disable-restore-session-state http://${DOMAIN}
+@${CHROMIUM_BIN} --kiosk --no-first-run --noerrdialogs --disable-infobars --incognito --disable-restore-session-state --password-store=basic http://${DOMAIN}
 LXDE
         success "Kiosk autostart configured in LXDE for http://${DOMAIN}/"
     fi
