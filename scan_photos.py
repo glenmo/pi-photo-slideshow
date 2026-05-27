@@ -9,29 +9,32 @@ folder) and are never served directly.
 
 Run periodically by cron — see setup.sh.
 """
-import os, json, time
+import os
+import json
+import time
 from urllib.parse import quote
 
 try:
     from PIL import Image, ImageOps
-except ImportError:
+except ImportError as exc:
     raise SystemExit(
         "Pillow is required. Install with: sudo apt-get install -y python3-pil"
-    )
+    ) from exc
 
 # Path is written by setup.sh into ~/.slideshow_config
 CONFIG_FILE = os.path.expanduser("~/.slideshow_config")
 
 def load_config():
-    config = {}
+    """Parse ~/.slideshow_config (KEY=value lines) into a dict."""
+    cfg = {}
     if os.path.exists(CONFIG_FILE):
-        with open(CONFIG_FILE) as f:
-            for line in f:
+        with open(CONFIG_FILE, encoding="utf-8") as fh:
+            for line in fh:
                 line = line.strip()
                 if "=" in line and not line.startswith("#"):
                     k, v = line.split("=", 1)
-                    config[k.strip()] = v.strip()
-    return config
+                    cfg[k.strip()] = v.strip()
+    return cfg
 
 config     = load_config()
 PHOTO_DIR  = config.get("PHOTO_DIR",  "/home/glen/photos")
@@ -68,20 +71,20 @@ def needs_rescale(src, dst):
         return True
 
 
-def scale_image(src, dst, fmt):
+def scale_image(src, dst, save_fmt):
     """Downscale src to fit MAX_W x MAX_H (never upscale) and write to dst."""
     with Image.open(src) as img:
         img = ImageOps.exif_transpose(img)  # honour camera rotation
-        img.thumbnail((MAX_W, MAX_H), Image.LANCZOS)  # shrinks only, keeps aspect
+        img.thumbnail((MAX_W, MAX_H), Image.Resampling.LANCZOS)  # shrinks only, keeps aspect
 
         tmp = dst + ".tmp"
-        if fmt == "JPEG":
+        if save_fmt == "JPEG":
             if img.mode not in ("RGB", "L"):
                 img = img.convert("RGB")  # JPEG has no alpha
             img.save(tmp, "JPEG", quality=85, optimize=True, progressive=True)
-        elif fmt == "WEBP":
+        elif save_fmt == "WEBP":
             img.save(tmp, "WEBP", quality=85, method=6)
-        elif fmt == "PNG":
+        elif save_fmt == "PNG":
             img.save(tmp, "PNG", optimize=True)
         else:  # GIF (first frame)
             img.save(tmp, "GIF")
@@ -121,7 +124,8 @@ for f in stable:
     try:
         fmt = SAVE_FORMAT[os.path.splitext(f)[1].lower()]
         scale_image(os.path.join(PHOTO_DIR, f), os.path.join(CACHE_DIR, f), fmt)
-    except Exception as e:
+    # Keep scanning even if one image is corrupt; Pillow raises many error types.
+    except Exception as e:  # pylint: disable=broad-exception-caught
         print(f"Failed to scale {f}: {e}")
 
 # Remove cached copies whose original has been deleted.
@@ -138,7 +142,7 @@ ready = sorted(f for f in originals
 files = [f"/photos/{quote(f)}" for f in ready]
 
 tmp_json = OUTPUT + ".tmp"
-with open(tmp_json, "w") as out:
+with open(tmp_json, "w", encoding="utf-8") as out:
     json.dump(files, out)
 os.replace(tmp_json, OUTPUT)  # atomic write
 
