@@ -1,6 +1,8 @@
 # Pi Photo Slideshow
 
-A fullscreen photo slideshow served by Apache2 on a Raspberry Pi. Photos are displayed with a fade-to-black transition and filename-based captions. New photos added over the network appear automatically within 60 seconds — no restart required.
+A fullscreen photo slideshow served by Apache2 on a Raspberry Pi. Photos are displayed with a crossfade transition and filename-based captions. New photos added over the network appear automatically within ~30 seconds — no restart required.
+
+Photos dropped into the source folder are **pre-scaled to the display resolution** before being shown, which keeps browser memory stable over long uptimes (no more freezing on large images). Files still copying in over the network are detected and held back until fully written.
 
 ---
 
@@ -16,11 +18,12 @@ chmod +x setup.sh
 ```
 
 The script automatically:
-- Installs Apache2, Python3, and Samba
+- Installs Apache2, Python3, Pillow, and Samba
 - Creates and enables a virtual host at `http://<hostname>.local/`
+- Creates the source photos folder at `~/photos` and a served cache under the web root
 - Deploys `index.html` and `scan_photos.py`
-- Sets up the cron job to scan for new photos every minute
-- Configures a Samba share for drag-and-drop from Mac/PC
+- Sets up cron jobs to scan for new photos and pre-scale them every ~30 seconds
+- Configures a Samba share on `~/photos` for drag-and-drop from Mac/PC
 - Detects compositor (labwc or LXDE) and sets up Chromium kiosk mode on boot
 - Detects `chromium` vs `chromium-browser` binary automatically
 - Applies GPU memory tweaks for smooth display (Pi 3)
@@ -32,7 +35,7 @@ After the script finishes:
 sudo smbpasswd -a <your-username>
 
 # Add some photos
-scp photo.jpg <user>@<hostname>.local:/var/www/<hostname>.local/photos/
+scp photo.jpg <user>@<hostname>.local:/home/<user>/photos/
 
 # Reboot into kiosk mode
 sudo reboot
@@ -115,10 +118,24 @@ Now proceed with the quick install above.
 
 ## How it works
 
-- `index.html` — fullscreen slideshow page served by Apache2
-- `scan_photos.py` — scans the photos folder, fixes file permissions, and writes `photos.json`
-- A cron job runs `scan_photos.py` every minute
-- The browser fetches `photos.json` every 60 seconds and picks up any new photos automatically
+There are two photo folders:
+
+- **`~/photos`** — the *source* folder where you drop originals (this is the Samba share). The browser never reads from here.
+- **`/var/www/<hostname>.local/photos`** — a *cache* of pre-scaled copies that Apache actually serves.
+
+The flow:
+
+- `index.html` — fullscreen slideshow page served by Apache2, crossfading between photos
+- `scan_photos.py` — for each original it:
+  - skips macOS metadata files (`.DS_Store`, `._*`) and other dotfiles
+  - waits until a file's size has been stable for ~2 seconds, so a photo still copying over Samba isn't loaded half-written
+  - pre-scales it to the display resolution (downscale only, never enlarged), honouring EXIF rotation, and writes the copy to the served cache
+  - deletes cache copies whose original has been removed
+  - writes `photos.json` atomically
+- Two cron jobs run `scan_photos.py` every ~30 seconds (cron's minimum is 1 minute, so it runs on the minute and again 30s later, guarded by `flock`)
+- The browser re-fetches `photos.json` every 30 seconds and picks up any new photos automatically
+
+The pre-scale target resolution is set in `~/.slideshow_config` (`DISPLAY_WIDTH` / `DISPLAY_HEIGHT`).
 
 ---
 
@@ -129,7 +146,7 @@ Now proceed with the quick install above.
 - Desktop environment (for kiosk mode)
 - Network connection
 
-All other dependencies (Apache2, Python3, Samba, Chromium) are installed by `setup.sh`.
+All other dependencies (Apache2, Python3, Pillow, Samba, Chromium) are installed by `setup.sh`.
 
 ---
 
@@ -147,19 +164,31 @@ git clone git@github.com:glenmo/pi-photo-slideshow.git ~/slideshow
 
 ```bash
 cat > ~/.slideshow_config << EOF
-PHOTO_DIR=/var/www/<hostname>.local/photos
+PHOTO_DIR=/home/<user>/photos
+CACHE_DIR=/var/www/<hostname>.local/photos
 OUTPUT=/var/www/<hostname>.local/photos.json
+DISPLAY_WIDTH=3840
+DISPLAY_HEIGHT=2160
 EOF
 ```
 
+`PHOTO_DIR` is where you drop originals; `CACHE_DIR` holds the pre-scaled copies Apache serves. Adjust `DISPLAY_WIDTH`/`DISPLAY_HEIGHT` to your screen.
+
 ### 3. Set up the Apache2 virtual host
 
-Create the document root and set permissions:
+Create the served cache directory, the source photos folder, and set permissions:
 
 ```bash
 sudo mkdir -p /var/www/<hostname>.local/photos
 sudo chown -R <user>:www-data /var/www/<hostname>.local
 sudo chmod -R 775 /var/www/<hostname>.local
+mkdir -p /home/<user>/photos
+```
+
+Also install Pillow, which the scanner uses to pre-scale images:
+
+```bash
+sudo apt-get install -y python3-pil
 ```
 
 Create the virtual host config:
@@ -213,10 +242,11 @@ You should see `[]` if no photos have been added yet — that's fine.
 crontab -e
 ```
 
-Add this line:
+Add these two lines (cron's minimum granularity is one minute, so we run twice a minute for ~30s scanning; `flock` stops a slow scan overlapping the next):
 
 ```
-* * * * * python3 /home/<user>/scan_photos.py
+* * * * * flock -n /tmp/slideshow_scan.lock python3 /home/<user>/scan_photos.py
+* * * * * sleep 30 && flock -n /tmp/slideshow_scan.lock python3 /home/<user>/scan_photos.py
 ```
 
 ### 7. Set up kiosk mode on boot
@@ -276,13 +306,13 @@ sudo reboot
 Copy a single photo:
 
 ```bash
-scp photo.jpg <user>@<hostname>.local:/var/www/<hostname>.local/photos/
+scp photo.jpg <user>@<hostname>.local:/home/<user>/photos/
 ```
 
 Copy a folder of photos:
 
 ```bash
-scp -r ~/Photos/album/* <user>@<hostname>.local:/var/www/<hostname>.local/photos/
+scp -r ~/Photos/album/* <user>@<hostname>.local:/home/<user>/photos/
 ```
 
 ### Drag and drop via Samba — Mac
@@ -302,7 +332,7 @@ smb://<hostname>.local/photos
 
 Click **Remember this password** so Finder reconnects automatically next time. The photos folder will appear in the Finder sidebar under Locations.
 
-> **Note:** macOS creates hidden `._` metadata files alongside photos when copying over a network share. These are automatically filtered out by `scan_photos.py` and will not appear in the slideshow.
+> **Note:** macOS creates hidden `._` and `.DS_Store` metadata files alongside photos when copying over a network share. These (and any other dotfiles) are automatically filtered out by `scan_photos.py` and will not appear in the slideshow.
 
 ---
 
@@ -346,7 +376,7 @@ Enter the Pi username and password if prompted. You can drag photos in without a
    - **Username**: your Pi username
    - **Password**: your Pi password
 3. Click **Login**
-4. Navigate to `/var/www/<hostname>.local/photos/` in the right panel
+4. Navigate to `/home/<user>/photos/` in the right panel
 5. Drag photos from your Windows desktop or folders into the right panel
 
 WinSCP can save the session so you connect with one click next time.
@@ -410,16 +440,31 @@ Settings are at the top of `index.html` and can be adjusted:
 
 ```javascript
 const INTERVAL_MS   = 10000;     // time per photo in milliseconds (10000 = 10s)
-const FADE_MS       = 1500;      // fade duration in milliseconds
+const FADE_MS       = 1500;      // crossfade duration in milliseconds
 const CAPTION_DELAY = 400;       // delay before caption appears after image fades in
 const ORDER         = 'random';  // 'random' or 'sequential'
 const FIT           = 'contain'; // 'contain' (letterbox) or 'cover' (crop to fill)
+const REFRESH_MS    = 30000;     // how often to re-check photos.json for new photos
 ```
 
 After editing, redeploy:
 
 ```bash
 sudo cp ~/slideshow/index.html /var/www/<hostname>.local/index.html
+```
+
+The **pre-scale resolution** is configured separately, in `~/.slideshow_config`:
+
+```
+DISPLAY_WIDTH=3840
+DISPLAY_HEIGHT=2160
+```
+
+After changing these, delete the cached copies so they regenerate at the new size:
+
+```bash
+rm -f /var/www/<hostname>.local/photos/*
+python3 ~/scan_photos.py
 ```
 
 ---
@@ -473,14 +518,16 @@ python3 ~/scan_photos.py
 cat /var/www/<hostname>.local/photos.json
 ```
 
-If the cron job is missing, add it:
+If the cron jobs are missing, add them:
 ```bash
-(crontab -l 2>/dev/null; echo "* * * * * python3 /home/$(whoami)/scan_photos.py") | crontab -
+(crontab -l 2>/dev/null
+ echo "* * * * * flock -n /tmp/slideshow_scan.lock python3 /home/$(whoami)/scan_photos.py"
+ echo "* * * * * sleep 30 && flock -n /tmp/slideshow_scan.lock python3 /home/$(whoami)/scan_photos.py") | crontab -
 ```
 
 **Slideshow freezes on one image**
 
-This can happen if the browser tab runs out of memory (common on Pi 3 with large photos). Restart Chromium:
+Images are pre-scaled to the display resolution before being shown, which keeps memory stable and is the main defence against this. If it still happens, your originals may be scaling to copies that are larger than the screen — lower `DISPLAY_WIDTH`/`DISPLAY_HEIGHT` in `~/.slideshow_config`, clear the cache (`rm -f /var/www/<hostname>.local/photos/*`), and rescan. To recover immediately, restart Chromium:
 ```bash
 sudo systemctl restart lightdm
 ```
@@ -543,9 +590,10 @@ ssh -T git@github.com
 
 **macOS `._` metadata files appearing in photos folder**
 
-Delete them — `scan_photos.py` filters them automatically going forward:
+`scan_photos.py` filters them automatically, so they never reach the slideshow. To tidy the source folder anyway:
 ```bash
-find /var/www/<hostname>.local/photos/ -name "._*" -delete
+find /home/<user>/photos/ -name "._*" -delete
+find /home/<user>/photos/ -name ".DS_Store" -delete
 ```
 
 ---
@@ -559,14 +607,18 @@ repo/
 ├── setup.sh          # automated setup script for fresh Pi OS install
 └── README.md
 
+~/photos/             # SOURCE — drop your originals here (the Samba share)
+├── photo_one.jpg
+└── photo_two.jpg
+
 /var/www/<hostname>.local/
 ├── index.html        # deployed slideshow page
 ├── photos.json       # auto-generated by scan_photos.py
-└── photos/           # put your photos here
+└── photos/           # CACHE — pre-scaled copies served to the browser
     ├── photo_one.jpg
     └── photo_two.jpg
 
-~/.slideshow_config                        # paths config written by setup.sh
+~/.slideshow_config                        # paths + scale resolution, written by setup.sh
 ~/.config/labwc/autostart                  # kiosk autostart (Pi OS Bookworm)
 ~/.config/lxsession/LXDE-pi/autostart     # kiosk autostart (older Pi OS)
 ```
